@@ -89,6 +89,9 @@ export async function verifyInstalledPayload(release, client, installedPath) {
     throw new Error('Installed cache file inventory does not match the reviewed payload');
   }
   for (const entry of expected) {
+    if ((await lstat(join(installedPath, entry.path))).size !== entry.bytes) {
+      throw new Error(`Installed cache digest mismatch: ${entry.path}`);
+    }
     const bytes = await readFile(join(installedPath, entry.path));
     if (bytes.length !== entry.bytes || hash(bytes) !== entry.sha256) {
       throw new Error(`Installed cache digest mismatch: ${entry.path}`);

@@ -133,15 +133,14 @@ export function installCommands(client, root, { marketplacePresent, alreadyInsta
 
 export function parseClaudeMissingMcp(result) {
   if (result.status === 0) return ['combo'];
-  const text = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
-  if (result.status === 1 && text.trim() === 'No MCP server named "combo". Run `claude mcp add` to add one.') return [];
-  if (result.status !== 1 || !/No MCP server (?:found with name:|named) "combo"\./.test(text)) {
+  const text = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
+  if (result.status === 1 && text === 'No MCP server named "combo". Run `claude mcp add` to add one.') return [];
+  if (/and\s+\d+\s+more|awaiting approval|\u2026|\.\.\./i.test(text)) {
+    throw new Error('Claude MCP inventory is incomplete or awaiting approval; installation stopped');
+  }
+  const match = text.match(/^No MCP server (?:found with name:|named) "combo"\. Configured servers: ([A-Za-z0-9_.:@/-]+(?:, [A-Za-z0-9_.:@/-]+)*)$/);
+  if (result.status !== 1 || !match) {
     throw new Error('Unable to inspect Claude MCP names; installation stopped');
   }
-  const names = text.match(/Configured servers:\s*([^\r\n]+)/)?.[1];
-  if (!names) {
-    if (/No MCP servers configured/i.test(text)) return [];
-    throw new Error('Unsupported Claude MCP inventory; installation stopped');
-  }
-  return names.split(',').map((name) => name.trim()).filter(Boolean);
+  return match[1].split(', ');
 }

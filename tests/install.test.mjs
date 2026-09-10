@@ -99,6 +99,18 @@ test('Claude absence parser accepts both observed forms but rejects unknown fail
   assert.deepEqual(parseClaudeMissingMcp({ status: 0, stdout: 'not printed' }), ['combo']);
 });
 
+test('Claude truncated inventories and pending approvals cannot hide a ninth Combo server', () => {
+  assert.throws(() => parseClaudeMissingMcp({ status: 1, stderr:
+    'No MCP server named "combo". Configured servers: a1, a2, a3, a4, a5, a6, a7, a8 (and 1 more — run `claude mcp list` to see all)\n' }), /incomplete/);
+  assert.throws(() => parseClaudeMissingMcp({ status: 1, stderr:
+    'No MCP server named "combo". .mcp.json servers are awaiting approval — run `claude` in this directory to review them.\n' }), /awaiting approval/);
+  for (const name of ['combo-context-preview', 'combo_preview']) {
+    const mcpNames = parseClaudeMissingMcp({ status: 1,
+      stderr: `No MCP server named "combo". Configured servers: ${name}\n` });
+    assert.throws(() => inspectInstallation({ ...empty, client: 'claude', mcpNames }), /MCP conflicts/);
+  }
+});
+
 // A synthetic executable exercises the installer process boundary. These tests do not
 // claim that the real Codex or Claude host loaded or executed a released plugin.
 async function installerFixture(t, mode = 'normal') {
