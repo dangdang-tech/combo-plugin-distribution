@@ -1,0 +1,157 @@
+{
+  "schema": "combo-plugin-public-release/1",
+  "version": "0.2.0",
+  "channel": "test",
+  "status": "test",
+  "marketplace": "dangdang-tech-combo-public-test",
+  "repository": "https://github.com/dangdang-tech/combo-plugin-distribution.git",
+  "artifactSetSha256": "91a1548bf416f9d09a5a51258ac2c2bcfa84160da711ae698b05292dbf32f112",
+  "files": [
+    {
+      "path": ".agents/plugins/marketplace.json",
+      "bytes": 388,
+      "sha256": "7192664df83b0861f41f3ce6743de86b7d20860bcd61687d156e54a75520ceaa"
+    },
+    {
+      "path": ".claude-plugin/marketplace.json",
+      "bytes": 278,
+      "sha256": "136105e5306858bb27431479cf17a9b62edfda22856bc6c1c4d34d42dc340223"
+    },
+    {
+      "path": "plugins/combo-claude/.claude-plugin/plugin.json",
+      "bytes": 424,
+      "sha256": "41352885ecd093fcec18f88ff6f4e83120915e67d0701fb017aa7b1bb7ea8c41"
+    },
+    {
+      "path": "plugins/combo-claude/.mcp.json",
+      "bytes": 272,
+      "sha256": "c4b9d9640765c7ec0deac7f30bee9f3463638892a09026024f0a5fcc9b5703f9"
+    },
+    {
+      "path": "plugins/combo-claude/THIRD_PARTY_NOTICES.md",
+      "bytes": 24783,
+      "sha256": "3dbf3df936fed5727d5af8895cd19e0983c3b1ae055586fb875c53b5b199dcc5"
+    },
+    {
+      "path": "plugins/combo-claude/bin/agent-package-context-compiler.d.mts",
+      "bytes": 729,
+      "sha256": "fc5444c596bb38c8dbbd9fb91971dadf494e4529d466d04671835504632311ba"
+    },
+    {
+      "path": "plugins/combo-claude/bin/agent-package-context-compiler.mjs",
+      "bytes": 168435,
+      "sha256": "028894b829fc3afdf625fae70c4fcbbec8a75ee49dc8b50f7d826ac274be785b"
+    },
+    {
+      "path": "plugins/combo-claude/bin/combo-context.mjs",
+      "bytes": 575291,
+      "sha256": "12e099384582077f872810decad357c481cddf9c121e178a52d54b18e118e86a"
+    },
+    {
+      "path": "plugins/combo-claude/bin/combo-local.mjs",
+      "bytes": 695790,
+      "sha256": "5a308e29d33ee806875f5926f687c554d98d68eddb385fcdda46266ad720eebf"
+    },
+    {
+      "path": "plugins/combo-claude/bin/combo-mcp.mjs",
+      "bytes": 1228221,
+      "sha256": "4501126cb48ffc632827ff6fccdaa242fc87cc0caddb5c1e3a2dc4f2f5ad9ac4"
+    },
+    {
+      "path": "plugins/combo-claude/skills/combo-agent-builder/SKILL.md",
+      "bytes": 11996,
+      "sha256": "9ee5a0c3a0e160dd64a58dd8413d2aba2b05b3af608a02b61497c4c2db0144cd"
+    },
+    {
+      "path": "plugins/combo-claude/third-party-licenses.json",
+      "bytes": 3812,
+      "sha256": "1406b4fe95a212a05c4ea493c5188f0556a9abd37e684b061a481f0dfddeea05"
+    },
+    {
+      "path": "plugins/combo-claude/ui/agent-card.html",
+      "bytes": 391731,
+      "sha256": "0353632d015a40f5286b01a4debdad5cb51da3ccc3cd64824da233f00a6d0d2a"
+    },
+    {
+      "path": "plugins/combo-claude/ui/context-card.html",
+      "bytes": 324714,
+      "sha256": "6ba0b435ac6604d534c12a87d2e38b2584bfed83d7e724df1be754a914fc017a"
+    },
+    {
+      "path": "plugins/combo/.codex-plugin/plugin.json",
+      "bytes": 1514,
+      "sha256": "de6c0f74aa70ecbe476bbdd0b459aa10cc925b14cdf2fb02227d53549641197e"
+    },
+    {
+      "path": "plugins/combo/.mcp.json",
+      "bytes": 269,
+      "sha256": "cb7b5f9afe2260e4062ea0b38708263450d6413389e435ac571347d4a17ad00f"
+    },
+    {
+      "path": "plugins/combo/THIRD_PARTY_NOTICES.md",
+      "bytes": 24783,
+      "sha256": "3dbf3df936fed5727d5af8895cd19e0983c3b1ae055586fb875c53b5b199dcc5"
+    },
+    {
+      "path": "plugins/combo/assets/icon.png",
+      "bytes": 17818,
+      "sha256": "236a8181152fc3cbbcb7f406b457a97ee092d0a3836eea36753f234fd7b08aa4"
+    },
+    {
+      "path": "plugins/combo/assets/icon.svg",
+      "bytes": 507,
+      "sha256": "b97bcf5e858c5a9c7a546a6798a73ecf0931ef9b5b593b7c813dc93fbdf15108"
+    },
+    {
+      "path": "plugins/combo/bin/agent-package-context-compiler.d.mts",
+      "bytes": 729,
+      "sha256": "fc5444c596bb38c8dbbd9fb91971dadf494e4529d466d04671835504632311ba"
+    },
+    {
+      "path": "plugins/combo/bin/agent-package-context-compiler.mjs",
+      "bytes": 168435,
+      "sha256": "028894b829fc3afdf625fae70c4fcbbec8a75ee49dc8b50f7d826ac274be785b"
+    },
+    {
+      "path": "plugins/combo/bin/combo-context.mjs",
+      "bytes": 575291,
+      "sha256": "12e099384582077f872810decad357c481cddf9c121e178a52d54b18e118e86a"
+    },
+    {
+      "path": "plugins/combo/bin/combo-local.mjs",
+      "bytes": 695790,
+      "sha256": "5a308e29d33ee806875f5926f687c554d98d68eddb385fcdda46266ad720eebf"
+    },
+    {
+      "path": "plugins/combo/bin/combo-mcp.mjs",
+      "bytes": 1228221,
+      "sha256": "4501126cb48ffc632827ff6fccdaa242fc87cc0caddb5c1e3a2dc4f2f5ad9ac4"
+    },
+    {
+      "path": "plugins/combo/skills/combo-agent-builder/SKILL.md",
+      "bytes": 11996,
+      "sha256": "9ee5a0c3a0e160dd64a58dd8413d2aba2b05b3af608a02b61497c4c2db0144cd"
+    },
+    {
+      "path": "plugins/combo/third-party-licenses.json",
+      "bytes": 3812,
+      "sha256": "1406b4fe95a212a05c4ea493c5188f0556a9abd37e684b061a481f0dfddeea05"
+    },
+    {
+      "path": "plugins/combo/ui/agent-card.html",
+      "bytes": 391731,
+      "sha256": "0353632d015a40f5286b01a4debdad5cb51da3ccc3cd64824da233f00a6d0d2a"
+    },
+    {
+      "path": "plugins/combo/ui/context-card.html",
+      "bytes": 324714,
+      "sha256": "6ba0b435ac6604d534c12a87d2e38b2584bfed83d7e724df1be754a914fc017a"
+    }
+  ],
+  "evidence": {
+    "distributionChecks": "run_for_candidate_commit",
+    "codexHostExtraction": "not_run",
+    "claudeHostExtraction": "not_run",
+    "modelTaskExecution": "not_run"
+  }
+}

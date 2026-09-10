@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "combo": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/combo-mcp.mjs"],
+      "env": {
+        "COMBO_CONTEXT_CLIENT": "claude",
+        "COMBO_CONTEXT_CLOUD_ORIGIN": "https://test.43-160-242-46.sslip.io"
+      }
+    }
+  }
+}

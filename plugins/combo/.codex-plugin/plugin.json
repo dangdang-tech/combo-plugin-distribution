@@ -1,0 +1,31 @@
+{
+  "name": "combo",
+  "version": "0.2.0",
+  "description": "把当前对话的方法编译成可审阅的 Agent，在原对话使用，并经独立确认保存到 Combo Test。",
+  "author": {
+    "name": "Dangdang Tech",
+    "url": "https://github.com/dangdang-tech"
+  },
+  "homepage": "https://github.com/dangdang-tech/combo-plugin-distribution",
+  "repository": "https://github.com/dangdang-tech/combo-plugin-distribution.git",
+  "keywords": ["agent", "current-context", "local-first", "codex", "mcp", "test"],
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Combo Test",
+    "shortDescription": "把当前对话的方法做成可复用 Agent",
+    "longDescription": "在当前对话整理已去敏的方法，本地编译并审阅完整 AGENT.md 和 Skills。使用与修改留在原对话；保存到 Combo Test 需要浏览器配对，公开分享需要另行确认。不读取完整历史，不认证来源，不自动上传或运行。",
+    "developerName": "Dangdang Tech",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/dangdang-tech/combo-plugin-distribution",
+    "defaultPrompt": [
+      "把刚才讨论的方法提取成一个 Agent，先让我审阅完整方法",
+      "在当前对话使用这个 Agent",
+      "把审阅后的 Agent 保存到 Combo Test，暂不公开"
+    ],
+    "brandColor": "#A9583E",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png"
+  }
+}
