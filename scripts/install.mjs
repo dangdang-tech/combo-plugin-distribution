@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, readFile, readdir, realpath, rmdir, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rmdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PLUGIN_ID, REPOSITORY, verifyInstalledPayload, verifyRelease } from './release-lib.mjs';
 import { inspectInstallation, installCommands, isolatedEnvironment, normalizeMarketplaces, normalizePlugins,
@@ -9,8 +10,10 @@ import { inspectInstallation, installCommands, isolatedEnvironment, normalizeMar
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 let lock;
 let cliEnvironment = process.env;
+let cliWorkingDirectory;
 function run(bin, args, { allowFailure = false } = {}) {
-  const result = spawnSync(bin, args, { cwd: root, encoding: 'utf8', timeout: 120000,
+  const result = spawnSync(bin, args, { cwd: bin === 'git' ? root : cliWorkingDirectory,
+    encoding: 'utf8', timeout: 120000,
     maxBuffer: 8 * 1024 * 1024, windowsHide: true, env: cliEnvironment });
   if (!allowFailure && (result.error || result.status !== 0)) {
     // MCP inventory may contain secrets. Never copy child output into an error.
@@ -83,6 +86,9 @@ try {
   const options = parseArgs(process.argv.slice(2));
   if (options['profile-dir']) cliEnvironment = await prepareProfile(options);
   const release = await verifyCheckout(options.commit);
+  // Client management is user-scoped. Never let it discover Project configuration
+  // from the distribution checkout or the caller's working-directory ancestry.
+  cliWorkingDirectory = await realpath(await mkdtemp(join(tmpdir(), 'combo-public-test-cli-')));
   const cli = selectCli(options.client, options.cli);
   const cliVersion = run(cli, ['--version']).stdout.trim();
   let state = inventory(options.client, cli);
@@ -131,4 +137,8 @@ try {
   process.exitCode = 1;
 } finally {
   if (lock) await rmdir(lock);
+  if (cliWorkingDirectory) {
+    try { await rmdir(cliWorkingDirectory); }
+    catch (error) { if (error.code !== 'ENOTEMPTY') throw error; }
+  }
 }

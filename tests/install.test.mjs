@@ -112,6 +112,7 @@ const mode = ${JSON.stringify(mode)};
 const profile = process.env.CODEX_HOME ?? process.env.CLAUDE_CONFIG_DIR;
 const client = process.env.CODEX_HOME ? 'codex' : 'claude';
 const args = process.argv.slice(2);
+if (process.cwd() === ${JSON.stringify(value.root)} || !process.cwd().split('/').at(-1).startsWith('combo-public-test-cli-')) process.exit(10);
 if (process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY) process.exit(9);
 const statePath = join(profile, 'fixture-state.json');
 const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : { calls: [] };
@@ -164,7 +165,7 @@ save(); process.exit(5);
   return { ...value, commit, cli, profile, run };
 }
 
-test('installer verifies installed bytes and repeats without another install for both clients', async (t) => {
+test('installer uses an empty management cwd, verifies cache bytes and repeats without reinstalling', async (t) => {
   const f = await installerFixture(t);
   for (const client of ['codex', 'claude']) {
     const profile = await f.profile(client);
