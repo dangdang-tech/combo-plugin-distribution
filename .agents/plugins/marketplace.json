@@ -1,0 +1,20 @@
+{
+  "name": "dangdang-tech-combo-public-test",
+  "interface": {
+    "displayName": "Combo Public Test"
+  },
+  "plugins": [
+    {
+      "name": "combo",
+      "source": {
+        "source": "local",
+        "path": "./plugins/combo"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

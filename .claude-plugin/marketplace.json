@@ -1,0 +1,11 @@
+{
+  "name": "dangdang-tech-combo-public-test",
+  "owner": { "name": "Dangdang Tech" },
+  "plugins": [
+    {
+      "name": "combo",
+      "source": "./plugins/combo-claude",
+      "description": "把当前对话里的方法制作成可审阅、可复用的 Agent。"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "combo": {
+      "command": "node",
+      "args": ["./bin/combo-mcp.mjs"],
+      "cwd": ".",
+      "env": {
+        "COMBO_CONTEXT_CLIENT": "codex",
+        "COMBO_CONTEXT_CLOUD_ORIGIN": "https://test.43-160-242-46.sslip.io"
+      }
+    }
+  }
+}
