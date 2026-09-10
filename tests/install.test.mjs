@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { inspectInstallation, installCommands, isolatedEnvironment, normalizeMarketplaces,
-  normalizePlugins, parseArgs, parseClaudeMissingMcp, selectCli } from '../scripts/install-lib.mjs';
+  normalizePlugins, parseArgs, parseClaudeMissingMcp, reviewPlan, selectCli } from '../scripts/install-lib.mjs';
 import { hash, MARKETPLACE, PLUGIN_ID, TEST_ORIGIN, VERSION } from '../scripts/release-lib.mjs';
 import { commitFixture, fixture, git, write } from './fixtures.mjs';
 
@@ -48,27 +48,56 @@ test('unknown plugin or marketplace JSON fails closed', () => {
   assert.equal(normalizePlugins('claude', [{ id: 'figma@official' }])[0].name, 'figma');
 });
 
-test('disabled old Combo, preview variants, standalone MCP and foreign source are conflicts', () => {
+test('old Combo and preview variants produce concrete plans without granting migration authority', () => {
   for (const name of ['combo', 'combo-context-preview', 'combo_preview']) {
-    assert.throws(() => inspectInstallation({ ...empty,
-      plugins: [{ name, id: `${name}@old-market`, enabled: false }] }), /source conflicts/);
+    const state = inspectInstallation({ ...empty,
+      plugins: [{ name, id: `${name}@old-market`, version: '0.1.1', enabled: false,
+        author: 'dangdang-tech', repository: 'https://github.com/dangdang-tech/combo-plugin-distribution.git',
+        mcpServers: { combo: { env: { SECRET: 'do-not-print' } } } }] });
+    assert.equal(state.status, 'source_conflict');
+    assert.equal(state.existing.plugins[0].provenance, 'not_verified');
+    assert.deepEqual(installCommands('codex', root, state), []);
+    const plan = reviewPlan({ client: 'codex', root, commit: 'a'.repeat(40),
+      release: { artifactSetSha256: 'b'.repeat(64) }, state });
+    assert.equal(plan.migration.supported, false);
+    assert.equal(plan.migration.executable, false);
+    assert.equal(plan.migration.historicalProvenance, 'not_verified');
+    assert.deepEqual(plan.migration.commands, []);
+    assert.match(plan.decision.question, new RegExp(`${name}@old-market`));
+    assert.equal(plan.target.commit, 'a'.repeat(40));
+    assert.equal(plan.existing.plugins[0].enabled, false);
+    assert.equal(plan.recovery.automaticRollback, false);
+    assert.ok(plan.proposedChanges.length && plan.verification.length && plan.migration.requiredEvidence.length);
+    assert.equal(JSON.stringify(plan).includes('do-not-print'), false);
   }
-  assert.throws(() => inspectInstallation({ ...empty, mcpNames: ['combo_context_preview'] }), /MCP conflicts/);
+});
+
+test('unknown MCP/source and multiple scopes remain blocked; disabled and old versions are distinct', () => {
+  assert.equal(inspectInstallation({ ...empty, mcpNames: ['combo_context_preview'] }).status, 'source_conflict');
   const changed = exact();
   changed.marketplaces[0].marketplaceSource.source = '/tmp/different-commit';
-  assert.throws(() => inspectInstallation(changed), /different or unknown source/);
+  assert.equal(inspectInstallation(changed).status, 'source_conflict');
   const disabled = exact(); disabled.plugins[0].enabled = false;
-  assert.throws(() => inspectInstallation(disabled), /disabled state/);
+  assert.equal(inspectInstallation(disabled).status, 'disabled_preserved');
   const wrongVersion = exact(); wrongVersion.plugins[0].version = '0.1.0';
-  assert.throws(() => inspectInstallation(wrongVersion), /different version/);
+  assert.equal(inspectInstallation(wrongVersion).status, 'migration_plan_required');
+  const scopes = exact(); scopes.plugins.push({ ...scopes.plugins[0], scope: 'project' });
+  assert.equal(inspectInstallation(scopes).status, 'source_conflict');
+  for (const input of [changed, disabled, wrongVersion, scopes]) {
+    assert.deepEqual(installCommands('codex', root, inspectInstallation(input)), []);
+  }
+  assert.deepEqual(installCommands('codex', root, {}), []);
 });
 
 test('matching public source is idempotent and its namespaced Claude MCP is recognized', () => {
   assert.deepEqual(installCommands('codex', root, inspectInstallation(exact())), []);
   const claude = exact('claude'); claude.mcpNames = ['plugin:combo:combo'];
   assert.equal(inspectInstallation(claude).alreadyInstalled, true);
+  const duplicate = structuredClone(claude);
+  duplicate.mcpNames.push('plugin:combo:combo');
+  assert.equal(inspectInstallation(duplicate).status, 'source_conflict');
   claude.mcpNames.push('combo');
-  assert.throws(() => inspectInstallation(claude), /MCP conflicts/);
+  assert.equal(inspectInstallation(claude).status, 'source_conflict');
   assert.deepEqual(installCommands('claude', root, inspectInstallation({ ...empty, client: 'claude' })), [
     ['plugin', 'marketplace', 'add', root, '--scope', 'user'],
     ['plugin', 'install', PLUGIN_ID, '--scope', 'user'],
@@ -83,8 +112,13 @@ test('Codex short-name MCP is exempted only for the observed exact cached transp
     args: ['./bin/combo-mcp.mjs'], cwd: `${path}/.`,
     env: { COMBO_CONTEXT_CLIENT: 'codex', COMBO_CONTEXT_CLOUD_ORIGIN: TEST_ORIGIN }, env_vars: [] } }];
   assert.equal(inspectInstallation(state).installedPath, path);
+  const duplicate = structuredClone(state);
+  duplicate.mcpNames.push('combo');
+  duplicate.codexMcp.push({ name: 'combo', enabled: true, transport: { type: 'http', url: 'https://unverified.invalid' } });
+  assert.equal(inspectInstallation(duplicate).status, 'source_conflict');
+  assert.deepEqual(installCommands('codex', root, inspectInstallation(duplicate)), []);
   state.codexMcp[0].transport.cwd = '/tmp/other-plugin';
-  assert.throws(() => inspectInstallation(state), /MCP conflicts/);
+  assert.equal(inspectInstallation(state).status, 'source_conflict');
 });
 
 test('Claude absence parser accepts both observed forms but rejects unknown failures', () => {
@@ -107,7 +141,7 @@ test('Claude truncated inventories and pending approvals cannot hide a ninth Com
   for (const name of ['combo-context-preview', 'combo_preview']) {
     const mcpNames = parseClaudeMissingMcp({ status: 1,
       stderr: `No MCP server named "combo". Configured servers: ${name}\n` });
-    assert.throws(() => inspectInstallation({ ...empty, client: 'claude', mcpNames }), /MCP conflicts/);
+    assert.equal(inspectInstallation({ ...empty, client: 'claude', mcpNames }).status, 'source_conflict');
   }
 });
 
@@ -132,7 +166,9 @@ state.calls.push(args);
 const save = () => writeFileSync(statePath, JSON.stringify(state));
 const out = (v) => process.stdout.write(JSON.stringify(v));
 if (args[0] === '--version') { save(); console.log('synthetic-cli 0.0.0'); process.exit(0); }
-if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') { state.source = args[3]; save(); out({}); process.exit(0); }
+if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') {
+  if (mode !== 'marketplace-not-registered') state.source = args[3]; save(); out({}); process.exit(0);
+}
 if (args[0] === 'plugin' && ['add', 'install'].includes(args[1])) {
   if (mode === 'fail-once' && !state.failedOnce) { state.failedOnce = true; save(); process.stderr.write('sensitive-fixture-output'); process.exit(4); }
   state.installed = true; state.path = join(profile, 'plugins/cache', ${JSON.stringify(MARKETPLACE)}, 'combo', ${JSON.stringify(VERSION)});
@@ -142,10 +178,16 @@ if (args[0] === 'plugin' && ['add', 'install'].includes(args[1])) {
 }
 if (args[0] === 'plugin' && args[1] === 'list') {
   let plugins = state.installed ? [{ pluginId: ${JSON.stringify(PLUGIN_ID)}, id: ${JSON.stringify(PLUGIN_ID)}, name: 'combo',
-    marketplaceName: ${JSON.stringify(MARKETPLACE)}, version: ${JSON.stringify(VERSION)}, enabled: true, installed: true, scope: 'user',
+    marketplaceName: ${JSON.stringify(MARKETPLACE)}, version: ${JSON.stringify(VERSION)}, enabled: state.enabled !== false, installed: true, scope: 'user',
     ...(client === 'claude' ? { installPath: state.path } : {}), source: { source: 'local', path: join(state.source, 'plugins/combo') },
     marketplaceSource: { sourceType: 'local', source: state.source } }] : [];
   if (mode === 'old-combo') plugins = [{ pluginId: 'combo@old', id: 'combo@old', name: 'combo', marketplaceName: 'old', version: '0.1.0', enabled: false }];
+  if (mode === 'after-marketplace-conflict' && state.source && !state.installed) {
+    plugins = [{ pluginId: 'combo@old', id: 'combo@old', name: 'combo', marketplaceName: 'old', version: '0.1.0', enabled: false }];
+  }
+  if (mode === 'late-conflict' && state.calls.filter((call) => call[0] === 'plugin' && call[1] === 'list').length > 1) {
+    plugins = [{ pluginId: 'combo-context-preview@unverified', id: 'combo-context-preview@unverified', name: 'combo-context-preview', enabled: false }];
+  }
   save(); out(mode === 'unknown-json' ? {} : client === 'codex' ? { installed: plugins } : plugins); process.exit(0);
 }
 if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') {
@@ -155,7 +197,7 @@ if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') {
 }
 if (args[0] === 'mcp') {
   save(); if (client === 'codex') {
-    out(state.installed && mode !== 'no-authoritative-path' ? [{ name: 'combo', enabled: true,
+    out(state.installed && mode !== 'no-authoritative-path' ? [{ name: 'combo', enabled: state.enabled !== false,
       transport: { type: 'stdio', command: 'node', args: ['./bin/combo-mcp.mjs'], cwd: state.path,
         env: { COMBO_CONTEXT_CLIENT: 'codex', COMBO_CONTEXT_CLOUD_ORIGIN: ${JSON.stringify(TEST_ORIGIN)} }, env_vars: [] } }] : []);
     process.exit(0);
@@ -206,7 +248,11 @@ test('installed cache tampering stops repeated install without repair or readine
   const second = f.run('codex', profile);
   assert.equal(second.status, 1);
   assert.match(second.stderr, /cache digest mismatch/);
-  assert.equal(second.stdout, '');
+  const failure = JSON.parse(second.stdout);
+  assert.equal(failure.status, 'failed');
+  assert.equal(failure.recovery.stage, 'installed_cache_verification');
+  assert.deepEqual(failure.recovery.attemptedCommands, []);
+  assert.equal(failure.recovery.automaticRollback, false);
 });
 
 test('wrong SHA, dirty checkout and unrecognized profile stop before CLI mutations', async (t) => {
@@ -221,6 +267,7 @@ test('wrong SHA, dirty checkout and unrecognized profile stop before CLI mutatio
   assert.match(dirty.stderr, /checkout has changes/);
   const profileEntries = await readdir(profile);
   assert.equal(profileEntries.includes('fixture-state.json'), false);
+  assert.deepEqual(profileEntries, []);
 });
 
 test('foreign source and unsupported inventory never invoke marketplace or plugin add', async (t) => {
@@ -228,7 +275,7 @@ test('foreign source and unsupported inventory never invoke marketplace or plugi
     const f = await installerFixture(t, mode);
     const profile = await f.profile('codex');
     const result = f.run('codex', profile);
-    assert.equal(result.status, 1);
+    assert.equal(result.status, mode === 'old-combo' ? 2 : 1);
     const state = JSON.parse(await readFile(join(profile, 'fixture-state.json'), 'utf8'));
     assert.equal(state.calls.some((args) => args.includes('add') || args.includes('install')), false);
   }
@@ -240,6 +287,13 @@ test('install failure preserves marketplace and retries only the unfinished inst
   const first = f.run('codex', profile);
   assert.equal(first.status, 1);
   assert.equal(first.stderr.includes('sensitive-fixture-output'), false);
+  const failure = JSON.parse(first.stdout);
+  assert.equal(failure.status, 'failed');
+  assert.equal(failure.recovery.stage, 'plugin_install');
+  assert.equal(failure.recovery.attemptedCommands.length, 2);
+  assert.equal(failure.recovery.completedCommands.length, 1);
+  assert.equal(failure.recovery.mutationOutcome, 'may_have_partial_changes');
+  assert.equal(failure.recovery.automaticRollback, false);
   const second = f.run('codex', profile);
   assert.equal(second.status, 0, second.stderr);
   const state = JSON.parse(await readFile(join(profile, 'fixture-state.json'), 'utf8'));
@@ -259,7 +313,7 @@ test('missing authoritative cache path fails and receipts cannot substitute the 
 
   const noAuthority = await installerFixture(t, 'no-authoritative-path');
   const noAuthorityProfile = await noAuthority.profile('codex');
-  assert.match(noAuthority.run('codex', noAuthorityProfile).stderr, /cannot locate the actual installed cache/);
+  assert.match(noAuthority.run('codex', noAuthorityProfile).stderr, /verifiable, non-symlink installed cache/);
   const unlocatedState = JSON.parse(await readFile(join(noAuthorityProfile, 'fixture-state.json'), 'utf8'));
   await writeFile(join(unlocatedState.path, 'bin/combo-context.mjs'), 'tampered actual cache');
   const forgedDirectory = `${noAuthority.root}.install-receipts`;
@@ -297,4 +351,109 @@ test('existing install lock prevents writes and is never removed by another inst
   assert.deepEqual(await readdir(`${f.root}.install-codex.lock`), []);
   const state = JSON.parse(await readFile(join(profile, 'fixture-state.json'), 'utf8'));
   assert.equal(state.calls.some((args) => args.includes('add') || args.includes('install')), false);
+});
+
+test('disabled installed package stays disabled, verifies available cache and never reinstalls', async (t) => {
+  const f = await installerFixture(t);
+  for (const client of ['codex', 'claude']) {
+    const profile = await f.profile(client);
+    assert.equal(f.run(client, profile).status, 0);
+    const statePath = join(profile, 'fixture-state.json');
+    const before = JSON.parse(await readFile(statePath, 'utf8'));
+    before.enabled = false;
+    await writeFile(statePath, JSON.stringify(before));
+    const preserved = f.run(client, profile);
+    assert.equal(preserved.status, 2, preserved.stderr);
+    const report = JSON.parse(preserved.stdout);
+    assert.equal(report.status, 'disabled_preserved');
+    assert.equal(report.reviewPlan.installedCacheVerification.status, 'passed');
+    assert.equal(report.reviewPlan.existing.plugins[0].enabled, false);
+    assert.deepEqual(report.commands, []);
+    const after = JSON.parse(await readFile(statePath, 'utf8'));
+    assert.equal(after.enabled, false);
+    assert.equal(after.calls.filter((args) => args[0] === 'plugin' && ['add', 'install'].includes(args[1])).length, 1);
+    await writeFile(join(before.path, 'bin/combo-mcp.mjs'), 'tampered disabled cache');
+    const tampered = f.run(client, profile);
+    assert.equal(tampered.status, 1);
+    assert.equal(JSON.parse(tampered.stdout).status, 'failed');
+    assert.match(tampered.stderr, /cache digest mismatch/);
+  }
+});
+
+test('disabled cache hidden by the client is explicitly unverified, not inferred from a receipt', async (t) => {
+  const f = await installerFixture(t, 'no-authoritative-path');
+  const profile = await f.profile('codex');
+  assert.equal(f.run('codex', profile).status, 1);
+  const statePath = join(profile, 'fixture-state.json');
+  const before = JSON.parse(await readFile(statePath, 'utf8'));
+  before.enabled = false;
+  await writeFile(statePath, JSON.stringify(before));
+  const preserved = f.run('codex', profile);
+  assert.equal(preserved.status, 2, preserved.stderr);
+  const report = JSON.parse(preserved.stdout);
+  assert.equal(report.status, 'disabled_preserved');
+  assert.equal(report.reviewPlan.installedCacheVerification.status, 'not_verified');
+  assert.equal(report.localCompiler, undefined);
+  assert.deepEqual(report.recovery.attemptedCommands, []);
+});
+
+test('a conflict appearing during the lock recheck produces a plan before any install command', async (t) => {
+  const f = await installerFixture(t, 'late-conflict');
+  const profile = await f.profile('codex');
+  const result = f.run('codex', profile);
+  assert.equal(result.status, 2, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.reviewPlan.existing.plugins[0].id, 'combo-context-preview@unverified');
+  assert.deepEqual(report.recovery.attemptedCommands, []);
+  assert.equal(report.hostToolLoad, 'not_verified');
+  assert.equal(report.modelExtraction, 'not_run');
+});
+
+test('a disabled conflicting registration appearing after marketplace add prevents plugin add', async (t) => {
+  const f = await installerFixture(t, 'after-marketplace-conflict');
+  const profile = await f.profile('codex');
+  const result = f.run('codex', profile);
+  assert.equal(result.status, 2, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.status, 'source_conflict');
+  assert.equal(report.reviewPlan.existing.plugins[0].id, 'combo@old');
+  assert.equal(report.reviewPlan.existing.plugins[0].enabled, false);
+  assert.equal(report.recovery.completedCommands.length, 1);
+  assert.equal(report.recovery.mutationOutcome, 'may_have_partial_changes');
+  const state = JSON.parse(await readFile(join(profile, 'fixture-state.json'), 'utf8'));
+  assert.equal(state.source, f.root);
+  assert.equal(state.calls.some((args) => args[0] === 'plugin' && args[1] === 'add'), false);
+});
+
+test('plugin add is never attempted without the revalidated target marketplace', async (t) => {
+  const f = await installerFixture(t, 'marketplace-not-registered');
+  const profile = await f.profile('codex');
+  const result = f.run('codex', profile);
+  assert.equal(result.status, 1, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.status, 'failed');
+  assert.match(report.error, /marketplace disappeared or was not registered/);
+  assert.equal(report.recovery.completedCommands.length, 1);
+  const state = JSON.parse(await readFile(join(profile, 'fixture-state.json'), 'utf8'));
+  assert.equal(state.calls.some((args) => args[0] === 'plugin' && args[1] === 'add'), false);
+});
+
+test('first-install dry run gives only add commands and never tells the host to compile yet', async (t) => {
+  const f = await installerFixture(t);
+  const profile = await f.profile('codex');
+  const result = spawnSync(process.execPath, [join(f.root, 'scripts/install.mjs'), '--client', 'codex',
+    '--commit', f.commit, '--cli', f.cli, '--profile-dir', profile], { cwd: f.temporaryRoot, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.status, 'ready_to_install');
+  assert.equal(report.commands.length, 2);
+  assert.equal(report.installedCache, 'not_installed');
+  assert.match(report.next, /plan only/);
+  const state = JSON.parse(await readFile(join(profile, 'fixture-state.json'), 'utf8'));
+  assert.equal(state.calls.some((args) => args.includes('add') || args.includes('install')), false);
+  // Native CLI queries also create profile files (observed: Codex tmp/).
+  // The marker must allow apply after dry-run without accepting arbitrary profiles.
+  const applied = f.run('codex', profile);
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.equal(JSON.parse(applied.stdout).status, 'installed');
 });
