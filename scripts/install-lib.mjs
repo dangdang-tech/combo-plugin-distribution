@@ -214,8 +214,11 @@ export function reviewPlan({ client, root, commit, release, state, cache }) {
       'Check tools and same-name Skills actually visible in this task separately; CLI installation is not host loading.',
       'Extract only if this conversation already contains a reusable method; compilation is not execution.'],
     decision: { requiredBeforeChanges: true,
-      question: `Keep ${subjects || 'the existing configuration'} unchanged and defer the target, or authorize a separate review of the listed migration prerequisites?`,
-      effect: 'The latter authorizes review only. This installer cannot migrate, activate, overwrite or uninstall; original restrictions remain in force.' },
+      recommendedAction: 'keep_existing',
+      question: state.status === 'disabled_preserved'
+        ? `Should ${subjects} remain disabled? Activation would need an explicitly requested, supported host mechanism; this installer cannot activate it.`
+        : `Keep ${subjects || 'the existing configuration'} and defer the target. If replacement is intended, what verified public source and fixed commit identify these existing items so their restoration plan can be completed?`,
+      effect: 'Finish all already-authorized read-only checks before asking for missing source information or intent. Do not request permission to repeat those checks. No executable migration is offered; any later destructive plan requires explicit authorization and original restrictions remain in force.' },
   };
 }
 
