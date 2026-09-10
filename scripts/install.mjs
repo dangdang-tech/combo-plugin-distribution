@@ -11,7 +11,6 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 let lock;
 let cliEnvironment = process.env;
 let cliWorkingDirectory;
-let profileMarker;
 let stage = 'arguments';
 let target;
 const attemptedCommands = [];
@@ -82,7 +81,13 @@ async function prepareProfile(options) {
     try { existing = await readSmallJson(markerPath); }
     catch { throw new Error('Test profile is not empty and has no matching isolation marker; it was not modified'); }
     if (JSON.stringify(existing) !== JSON.stringify(marker)) throw new Error('Test profile belongs to a different client or directory');
-  } else profileMarker = { path: markerPath, content: `${JSON.stringify(marker)}\n` };
+  } else {
+    // Even read-only native CLI commands may create their own tmp directory.
+    // Mark an explicitly isolated, initially empty test profile before invoking
+    // them so a following --apply can safely recognize it. Never mark a normal
+    // user profile or anything that failed release/profile validation.
+    await writeFile(markerPath, `${JSON.stringify(marker)}\n`, { flag: 'wx', mode: 0o600 });
+  }
   return isolatedEnvironment(options.client, profile);
 }
 
@@ -134,9 +139,6 @@ async function install() {
     state = inventory(options.client, cli);
     if (!await verifyState()) return;
     commands = installCommands(options.client, root, state);
-    if (commands.length && profileMarker) {
-      await writeFile(profileMarker.path, profileMarker.content, { flag: 'wx', mode: 0o600 });
-    }
     for (const command of commands) {
       // Marketplace registration and plugin installation are not one atomic CLI
       // operation. Preserve an intervening install/disable/collision as well.
@@ -148,6 +150,9 @@ async function install() {
         break;
       }
       if (command[1] === 'marketplace' && state.marketplacePresent) continue;
+      if (command[1] !== 'marketplace' && !state.marketplacePresent) {
+        throw new Error('Target marketplace disappeared or was not registered; plugin installation was not attempted. Reinspect the fixed source before retrying.');
+      }
       stage = command[1] === 'marketplace' ? 'marketplace_add' : 'plugin_install';
       attemptedCommands.push({ executable: cli, args: command });
       const result = run(cli, command);

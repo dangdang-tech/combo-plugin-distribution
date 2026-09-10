@@ -166,7 +166,9 @@ state.calls.push(args);
 const save = () => writeFileSync(statePath, JSON.stringify(state));
 const out = (v) => process.stdout.write(JSON.stringify(v));
 if (args[0] === '--version') { save(); console.log('synthetic-cli 0.0.0'); process.exit(0); }
-if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') { state.source = args[3]; save(); out({}); process.exit(0); }
+if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') {
+  if (mode !== 'marketplace-not-registered') state.source = args[3]; save(); out({}); process.exit(0);
+}
 if (args[0] === 'plugin' && ['add', 'install'].includes(args[1])) {
   if (mode === 'fail-once' && !state.failedOnce) { state.failedOnce = true; save(); process.stderr.write('sensitive-fixture-output'); process.exit(4); }
   state.installed = true; state.path = join(profile, 'plugins/cache', ${JSON.stringify(MARKETPLACE)}, 'combo', ${JSON.stringify(VERSION)});
@@ -423,6 +425,19 @@ test('a disabled conflicting registration appearing after marketplace add preven
   assert.equal(state.calls.some((args) => args[0] === 'plugin' && args[1] === 'add'), false);
 });
 
+test('plugin add is never attempted without the revalidated target marketplace', async (t) => {
+  const f = await installerFixture(t, 'marketplace-not-registered');
+  const profile = await f.profile('codex');
+  const result = f.run('codex', profile);
+  assert.equal(result.status, 1, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.status, 'failed');
+  assert.match(report.error, /marketplace disappeared or was not registered/);
+  assert.equal(report.recovery.completedCommands.length, 1);
+  const state = JSON.parse(await readFile(join(profile, 'fixture-state.json'), 'utf8'));
+  assert.equal(state.calls.some((args) => args[0] === 'plugin' && args[1] === 'add'), false);
+});
+
 test('first-install dry run gives only add commands and never tells the host to compile yet', async (t) => {
   const f = await installerFixture(t);
   const profile = await f.profile('codex');
@@ -436,4 +451,9 @@ test('first-install dry run gives only add commands and never tells the host to 
   assert.match(report.next, /plan only/);
   const state = JSON.parse(await readFile(join(profile, 'fixture-state.json'), 'utf8'));
   assert.equal(state.calls.some((args) => args.includes('add') || args.includes('install')), false);
+  // Native CLI queries also create profile files (observed: Codex tmp/).
+  // The marker must allow apply after dry-run without accepting arbitrary profiles.
+  const applied = f.run('codex', profile);
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.equal(JSON.parse(applied.stdout).status, 'installed');
 });
