@@ -5,12 +5,17 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PLUGIN_ID, REPOSITORY, verifyInstalledPayload, verifyRelease } from './release-lib.mjs';
 import { inspectInstallation, installCommands, isolatedEnvironment, normalizeMarketplaces, normalizePlugins,
-  parseArgs, parseClaudeMissingMcp, selectCli } from './install-lib.mjs';
+  failureRecovery, parseArgs, parseClaudeMissingMcp, reviewPlan, selectCli } from './install-lib.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 let lock;
 let cliEnvironment = process.env;
 let cliWorkingDirectory;
+let profileMarker;
+let stage = 'arguments';
+let target;
+const attemptedCommands = [];
+const completedCommands = [];
 function run(bin, args, { allowFailure = false } = {}) {
   const result = spawnSync(bin, args, { cwd: bin === 'git' ? root : cliWorkingDirectory,
     encoding: 'utf8', timeout: 120000,
@@ -77,35 +82,76 @@ async function prepareProfile(options) {
     try { existing = await readSmallJson(markerPath); }
     catch { throw new Error('Test profile is not empty and has no matching isolation marker; it was not modified'); }
     if (JSON.stringify(existing) !== JSON.stringify(marker)) throw new Error('Test profile belongs to a different client or directory');
-  } else if (options.apply) await writeFile(markerPath, `${JSON.stringify(marker)}\n`, { flag: 'wx', mode: 0o600 });
+  } else profileMarker = { path: markerPath, content: `${JSON.stringify(marker)}\n` };
   return isolatedEnvironment(options.client, profile);
 }
 
-try {
+async function install() {
   if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('Node.js 24 or newer is required; it will not be installed automatically');
   const options = parseArgs(process.argv.slice(2));
-  if (options['profile-dir']) cliEnvironment = await prepareProfile(options);
+  stage = 'release_verification';
   const release = await verifyCheckout(options.commit);
+  target = { client: options.client, commit: options.commit, version: release.version,
+    artifactSetSha256: release.artifactSetSha256, directory: root };
+  stage = 'profile_validation';
+  if (options['profile-dir']) cliEnvironment = await prepareProfile(options);
   // Client management is user-scoped. Never let it discover Project configuration
   // from the distribution checkout or the caller's working-directory ancestry.
   cliWorkingDirectory = await realpath(await mkdtemp(join(tmpdir(), 'combo-public-test-cli-')));
   const cli = selectCli(options.client, options.cli);
+  stage = 'cli_inventory';
   const cliVersion = run(cli, ['--version']).stdout.trim();
   let state = inventory(options.client, cli);
-  const wasInstalled = state.alreadyInstalled;
   let installedPath = state.installedPath;
   let cache;
-  if (state.alreadyInstalled) cache = await verifyInstalledPayload(release, options.client, installedPath);
+  async function verifyState() {
+    cache = undefined;
+    if (state.alreadyInstalled || (state.status === 'disabled_preserved' && state.installedPath)) {
+      stage = 'installed_cache_verification';
+      cache = await verifyInstalledPayload(release, options.client, state.installedPath);
+    }
+    if (state.issues.length) {
+      console.log(JSON.stringify({ status: state.status, client: options.client, cliVersion,
+        reviewPlan: reviewPlan({ client: options.client, root, commit: options.commit, release, state, cache }),
+        commands: [], hostToolLoad: 'not_verified', modelExtraction: 'not_run', upload: 'not_requested',
+        recovery: failureRecovery({ stage: 'installation_review', attemptedCommands, completedCommands }) }, null, 2));
+      process.exitCode = 2;
+      return false;
+    }
+    return true;
+  }
+  if (!await verifyState()) return;
   let commands = installCommands(options.client, root, state);
+  let didInstall = false;
   if (options.apply && commands.length) {
+    stage = 'installation_lock';
     lock = `${root}.install-${options.client}.lock`;
     try { await mkdir(lock, { mode: 0o700 }); }
     catch { lock = undefined; throw new Error('Another installation or an unfinished install lock exists; inspect it before retrying'); }
+    stage = 'release_revalidation';
     await verifyCheckout(options.commit);
+    stage = 'inventory_revalidation';
     state = inventory(options.client, cli);
+    if (!await verifyState()) return;
     commands = installCommands(options.client, root, state);
+    if (commands.length && profileMarker) {
+      await writeFile(profileMarker.path, profileMarker.content, { flag: 'wx', mode: 0o600 });
+    }
     for (const command of commands) {
+      // Marketplace registration and plugin installation are not one atomic CLI
+      // operation. Preserve an intervening install/disable/collision as well.
+      stage = 'before_mutation_inventory';
+      state = inventory(options.client, cli);
+      if (!await verifyState()) return;
+      if (state.alreadyInstalled) {
+        installedPath = state.installedPath;
+        break;
+      }
+      if (command[1] === 'marketplace' && state.marketplacePresent) continue;
+      stage = command[1] === 'marketplace' ? 'marketplace_add' : 'plugin_install';
+      attemptedCommands.push({ executable: cli, args: command });
       const result = run(cli, command);
+      completedCommands.push({ executable: cli, args: command });
       if (options.client === 'codex' && command[1] === 'add') {
         let installed;
         try { installed = JSON.parse(result.stdout); } catch { throw new Error('Invalid Codex installation result'); }
@@ -114,25 +160,37 @@ try {
         }
         installedPath = installed.installedPath;
       }
+      if (command[1] === 'add' || command[1] === 'install') didInstall = true;
     }
+    stage = 'post_install_inventory';
     state = inventory(options.client, cli);
+    if (!await verifyState()) return;
     if (!state.alreadyInstalled) throw new Error('Client did not report the expected installed version; host loading is unverified');
     if (!state.installedPath) throw new Error('Current client inventory cannot locate the actual installed cache; readiness remains unverified');
     if (installedPath && state.installedPath && resolve(installedPath) !== resolve(state.installedPath)) {
       throw new Error('CLI installation result and active MCP cache path disagree');
     }
     installedPath ??= state.installedPath;
-    cache = await verifyInstalledPayload(release, options.client, installedPath);
+    // verifyState above checks the current authoritative cache even if another
+    // installer completed between preflight and the lock recheck.
   }
-  console.log(JSON.stringify({ status: wasInstalled ? 'already_installed' : options.apply ? 'installed' : 'ready_to_install',
+  console.log(JSON.stringify({ status: didInstall ? 'installed' : state.alreadyInstalled ? 'already_installed' : 'ready_to_install',
     client: options.client, cliVersion, commit: options.commit, version: release.version,
     artifactSetSha256: release.artifactSetSha256,
     installedCache: cache ?? 'not_installed',
     commands: options.apply ? [] : commands.map((args) => ({ executable: cli, args })),
     hostToolLoad: 'not_verified', modelExtraction: 'not_run', upload: 'not_requested',
     localCompiler: resolve(root, 'plugins', options.client === 'codex' ? 'combo' : 'combo-claude', 'bin/combo-context.mjs'),
-    next: 'Use the current host context. If the new MCP tools are unavailable, use this exact local compiler with the synthesized method on stdin; do not scan conversations or Projects.' }, null, 2));
+    next: cache ? 'Check tools actually available in this task. If the new tools are unavailable, use this exact local compiler only when the current conversation already contains a reusable method; otherwise report readiness and continue extraction in the original conversation. Do not scan history or Projects.'
+      : 'This is a plan only. Apply the verified fresh installation before extraction; --apply does not authorize migration of existing registrations.' }, null, 2));
+}
+
+try {
+  await install();
 } catch (error) {
+  console.log(JSON.stringify({ status: 'failed', ...(target ? { target } : {}), error: error.message,
+    recovery: failureRecovery({ stage, attemptedCommands, completedCommands }),
+    hostToolLoad: 'not_verified', modelExtraction: 'not_run', upload: 'not_requested' }, null, 2));
   console.error(error.message);
   process.exitCode = 1;
 } finally {
