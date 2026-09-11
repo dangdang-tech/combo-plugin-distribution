@@ -8,6 +8,6 @@
 
 来源仅限当前模型已经可用的对话上下文。编译器不读取 Project、其他会话或凭据，也不调用模型；方法由当前宿主模型整理。本地编译成功不等于真实提取质量、宿主加载或执行已经验收，保存到云端及公开分享均需另外明确选择。
 
-marketplace：`dangdang-tech-combo-public-test`；插件：`combo`。发现已安装的其他 Combo 来源时安装器会停止，由用户明确选择后再处理，不会自动卸载或覆盖。
+marketplace：`dangdang-tech-combo-public-test`；插件：`combo`。发现已安装的其他 Combo 来源（包括 disabled）时安装器会停止，不会自动卸载或覆盖。迁移先匿名取得并校验固定目标包，再列明旧插件身份与影响范围，经用户确认具体旧项后通过客户端官方入口逐项卸载。卸载后须重新核对客户端清单和当前任务 MCP/Skill；残留或来源未知时停在原任务重载交接，不用本地编译器绕过冲突。详见 [安装与迁移说明](docs/install.md)。
 
 维护者可以运行 `npm test` 和 `npm run verify:release` 检查分发脚本及固定载荷。[发布清单](release.json) 记录 28 个审核文件的校验值，第三方许可证随插件保留，详见 [维护说明](docs/maintainers.md)。本次没有为 Combo 新增开源许可证。

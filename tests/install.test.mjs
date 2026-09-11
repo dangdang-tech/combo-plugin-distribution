@@ -48,10 +48,56 @@ test('unknown plugin or marketplace JSON fails closed', () => {
   assert.equal(normalizePlugins('claude', [{ id: 'figma@official' }])[0].name, 'figma');
 });
 
+test('migration request keeps exact-target consent, data protection and conflict gates', async () => {
+  const guide = await readFile(new URL('../docs/install.md', import.meta.url), 'utf8');
+  const request = guide.match(/```text\n([\s\S]*?)\n```/)?.[1];
+  assert.ok(request, 'the copyable request must remain available');
+  assert.equal(request.match(/PUBLIC_COMMIT_SHA/g)?.length, 2);
+  for (const rule of [
+    /包括 disabled/, /当前任务实际可见的 MCP 和 Skill/, /匿名取得并校验固定目标包/,
+    /plugin@marketplace/, /来源、版本、启用状态和影响范围/,
+    /明确确认具体旧项/, /已有针对这些具体旧项的明确授权.*不重复询问/,
+    /官方卸载入口逐项卸载/, /保护 Projects、对话、源码和其他插件/,
+    /禁止手动清缓存、改配置、批量卸载或强制安装/,
+    /卸载后重新核对客户端清单及当前任务 MCP\/Skill/,
+    /残留、来源未知或无法证明清除.*停止.*原任务重载交接/,
+    /不得用本地 CLI 绕过冲突/,
+    /新 MCP 工具仅未热加载且无旧冲突/,
+  ]) assert.match(request, rule);
+});
+
+test('migration execution verifies the target before consented removal and rechecks before installation', async () => {
+  const guide = await readFile(new URL('../docs/install.md', import.meta.url), 'utf8');
+  const execution = guide.split('## 执行顺序\n')[1]?.split('## 本地编译兼容路径\n')[0];
+  assert.ok(execution);
+  const steps = [...execution.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
+  const checkpoints = ['只读清点', '匿名取得', '请用户确认', '卸载后重新核对', '--apply', '安装返回成功后', '新 MCP 工具仅'];
+  let previous = -1;
+  for (const checkpoint of checkpoints) {
+    const index = steps.findIndex((step) => step.includes(checkpoint));
+    assert.ok(index > previous, `${checkpoint} must follow the preceding migration gate`);
+    previous = index;
+  }
+  const acquire = steps.find((step) => step.includes('匿名取得'));
+  assert.match(acquire, /verify-release\.mjs/);
+  assert.match(acquire, /失败.*不得卸载/);
+  assert.match(execution, /仅禁用旧插件不足以解除安装器冲突/);
+  assert.match(execution, /官方入口会修改 Project 文件.*停止/);
+  assert.match(execution, /卸载成功不代表当前任务已卸载旧工具或 Skill/);
+  assert.match(execution, /用户拒绝.*保留旧插件/);
+  assert.match(guide.split('## 本地编译兼容路径\n')[1], /无插件、MCP、Skill 冲突/);
+});
+
 test('disabled old Combo, preview variants, standalone MCP and foreign source are conflicts', () => {
-  for (const name of ['combo', 'combo-context-preview', 'combo_preview']) {
-    assert.throws(() => inspectInstallation({ ...empty,
-      plugins: [{ name, id: `${name}@old-market`, enabled: false }] }), /source conflicts/);
+  for (const client of ['codex', 'claude']) {
+    for (const name of ['combo', 'combo-context-preview', 'combo_preview']) {
+      for (const enabled of [true, false]) {
+        const item = { name, id: `${name}@old-market`, pluginId: `${name}@old-market`,
+          marketplaceName: 'old-market', enabled };
+        const plugins = normalizePlugins(client, client === 'codex' ? { installed: [item] } : [item]);
+        assert.throws(() => inspectInstallation({ ...empty, client, plugins }), /source conflicts/);
+      }
+    }
   }
   assert.throws(() => inspectInstallation({ ...empty, mcpNames: ['combo_context_preview'] }), /MCP conflicts/);
   const changed = exact();
@@ -223,14 +269,18 @@ test('wrong SHA, dirty checkout and unrecognized profile stop before CLI mutatio
   assert.equal(profileEntries.includes('fixture-state.json'), false);
 });
 
-test('foreign source and unsupported inventory never invoke marketplace or plugin add', async (t) => {
+test('foreign source and unsupported inventory never install or automatically migrate either client', async (t) => {
   for (const mode of ['old-combo', 'unknown-json']) {
     const f = await installerFixture(t, mode);
-    const profile = await f.profile('codex');
-    const result = f.run('codex', profile);
-    assert.equal(result.status, 1);
-    const state = JSON.parse(await readFile(join(profile, 'fixture-state.json'), 'utf8'));
-    assert.equal(state.calls.some((args) => args.includes('add') || args.includes('install')), false);
+    for (const client of ['codex', 'claude']) {
+      const profile = await f.profile(client);
+      const result = f.run(client, profile);
+      assert.equal(result.status, 1);
+      const state = JSON.parse(await readFile(join(profile, 'fixture-state.json'), 'utf8'));
+      const mutations = ['add', 'install', 'uninstall', 'remove', 'disable', 'enable', '--force'];
+      assert.equal(state.calls.some((args) => args.some((arg) => mutations.includes(arg))), false);
+      assert.equal(state.installed, undefined);
+    }
   }
 });
 
